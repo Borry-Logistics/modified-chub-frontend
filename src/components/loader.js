@@ -74,8 +74,12 @@ const Loader = ({ onLoaderLoaded }) => {
 
       // load web config, return webConfig or throw error
       async function loadWebConfig(domain) {
-        let resp = await axios({ url: `https://api.chub.page/config?domain=${domain}`, method: "GET" });
-        if (resp.status !== 200) {
+        // Self-hosted: fetch config from our own backend instead of api.chub.page.
+        const SELF_HOSTED_ABBR = "borry";
+        const api_host = `https://${domain}`;
+
+        let resp = await axios({ url: `${api_host}/${SELF_HOSTED_ABBR}/client/config/global`, method: "GET" });
+        if (!resp || resp.status !== 200) {
           setLoaderAnimation(false);
           setTitle(tr("drivers_hub"));
           setLoadMessage(
@@ -99,6 +103,7 @@ const Loader = ({ onLoaderLoaded }) => {
 
         return webConfig;
       }
+
       let cachedWebConfig = readLS("cache-web-config", window.dhhost);
       let webConfig = {},
         apiPath = "",
@@ -201,7 +206,7 @@ const Loader = ({ onLoaderLoaded }) => {
             let ok = false;
             for (let i = 0; i < 5; i++) {
               let resp = await axios({ url: `${apiPath}/status`, method: "GET" });
-              if (resp.data.database === "unavailable") {
+              if (resp && reps.data && resp.data.database === "unavailable") {
                 setLoadMessage(
                   <>
                     {tr("drivers_hub_is_experiencing_a_database_outage")}
@@ -266,32 +271,12 @@ const Loader = ({ onLoaderLoaded }) => {
       async function preloadData(wait = 0) {
         await sleep(wait);
 
-        // chub data
-        const urlsBatch1 = [
-          { url: "https://admin.chub.page/api/member/list", auth: false },
-          { url: "https://admin.chub.page/api/sponsor/list", auth: false },
-          { url: `${apiPath}/client/config/user`, auth: false },
-        ];
+        // chub data (member/llist and sponsor/list are CHub-central-only; skipped for self-hosted)
+        console.log("preload data api path:", apiPath);
+        const [userConfig] = await makeRequestsAuto([
+          { url: `${apiPath}/client/config/user`, auth: false }
+        ]);
 
-        const [specialRoles, patrons, userConfig] = await makeRequestsAuto(urlsBatch1);
-
-        const specialUsers = {};
-        if (specialRoles && specialRoles?.lead_developer) {
-          setSpecialRoles(specialRoles);
-          let roleNames = Object.keys(specialRoles);
-          for (let i = 0; i < roleNames.length; i++) {
-            let roleName = roleNames[i];
-            for (let j = 0; j < specialRoles[roleName].length; j++) {
-              let user = specialRoles[roleName][j];
-              if (!Object.keys(specialUsers).includes(user.id)) specialUsers[user.id] = [];
-              specialUsers[user.id].push({ role: roleName, color: user.color });
-            }
-          }
-          setSpecialUsers(specialUsers);
-        }
-        if (patrons && patrons?.platinum) {
-          setPatrons(patrons);
-        }
         if (userConfig) {
           setUserConfig(userConfig);
         }
@@ -391,7 +376,9 @@ const Loader = ({ onLoaderLoaded }) => {
         return preloadCache;
       }
 
-      let { specialRoles, specialUsers, patrons, userConfig, apiConfig, allRoles, allPerms, allRanks, fmRewards, fmRewardsDistributed } = {};
+      let specialRoles = {}, specialUsers = {};
+      let patrons = { platinum: [], gold: [], silver: [], bronze: [] };
+      let userConfig = {}, apiConfig = {}, allRoles = {}, allPerms = {}, allRanks = {}, fmRewards = [], fmRewardsDistributed = {};
 
       const cachePreload = readLS("cache-preload", window.dhhost);
       let dataFlag = localStorage.getItem("load-data-flag");

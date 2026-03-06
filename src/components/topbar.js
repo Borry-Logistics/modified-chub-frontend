@@ -83,6 +83,7 @@ const TopBar = props => {
 
   const [downloadUrl, setDownloadUrl] = useState("https://dl.chub.page/general/setup.exe");
   useEffect(() => {
+    if (!window.isElectron) return;
     fetch(`https://dl.chub.page/${webConfig.abbr}/latest.yml`)
       .then(response => {
         if (response.ok) {

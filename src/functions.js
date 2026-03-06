@@ -36,7 +36,7 @@ axiosRetry(customAxios, {
         return retryCount * 1000;
     },
     retryCondition: error => {
-        return error.response === undefined && error.response.status in [429, 503];
+        return error.response === undefined || [429, 503].includes(error.response.status);
     },
 });
 customAxios.interceptors.request.use(async config => {
@@ -100,6 +100,10 @@ customAxios.interceptors.response.use(
             console.error(new Error(errorMessage));
         }
 
+        if (!errorResponse) {
+            return Promise.reject(error);
+        };
+
         return errorResponse;
     }
 );
@@ -134,25 +138,29 @@ export const makeRequestsWithAuth = async urls => {
 export const makeRequestsAuto = async urls => {
     const responses = await Promise.all(
         urls.map(async ({ url, auth, fetchOnly }) => {
-            if (fetchOnly) {
-                return await customAxios({
-                    url,
-                    fetchOnly: true,
-                });
-            }
-            if (auth === false || (auth === true && getAuthToken() !== null) || auth === "prefer") {
-                return await customAxios({
-                    url,
-                    headers:
-                        auth === true || (auth === "prefer" && getAuthToken() !== null)
-                            ? {
-                                Authorization: `Bearer ${getAuthToken()}`,
-                            }
-                            : null,
-                });
-            } else {
-                return { data: {} };
-            }
+            try {
+                if (fetchOnly) {
+                    return await customAxios({
+                        url,
+                        fetchOnly: true,
+                    });
+                }
+                if (auth === false || (auth === true && getAuthToken() !== null) || auth === "prefer") {
+                    return await customAxios({
+                        url,
+                        headers:
+                            auth === true || (auth === "prefer" && getAuthToken() !== null)
+                                ? {
+                                    Authorization: `Bearer ${getAuthToken()}`,
+                                }
+                                : null,
+                    });
+                } else {
+                    return { data: {} };
+                }
+            } catch {
+                return null;
+            };
         })
     );
     return responses.map(response => (response ? response.error || response.data : {}));
@@ -251,8 +259,7 @@ export async function FetchProfile({ apiPath, specialUsers, patrons, setUserLeve
             let tiers = ["platinum", "gold", "silver", "bronze"];
             for (let i = 0; i < tiers.length; i++) {
                 if (userLevel !== -1) break;
-                if (!Object.keys(patrons).includes(tiers[i])) continue;
-                for (let j = 0; j < patrons[tiers[i]].length; j++) {
+                for (let j = 0; j < (patrons && patrons[tiers[i]] ? patrons[tiers[i]].length : 0); j++) {
                     let patron = patrons[tiers[i]][j];
                     if (patron.abbr === webConfig.abbr && patron.uid === curUser.uid) {
                         setCurUserPatreonID(patron.id);
@@ -263,7 +270,7 @@ export async function FetchProfile({ apiPath, specialUsers, patrons, setUserLeve
             }
             if (userLevel === -1) userLevel = 0;
 
-            if (curUser.discordid !== null && curUser.discordid !== undefined && Object.keys(specialUsers).includes(curUser.discordid) && specialUsers[curUser.discordid] !== undefined) {
+            if (curUser.discordid !== null && curUser.discordid !== undefined && specialUsers && Object.keys(specialUsers).includes(curUser.discordid) && specialUsers[curUser.discordid] !== undefined) {
                 for (let i = 0; i < specialUsers[curUser.discordid].length; i++) {
                     if (["lead_developer", "project_manager", "community_manager", "development_team", "support_leader", "marketing_leader", "graphic_leader", "support_team", "marketing_team", "graphic_team", "platinum_access"].includes(specialUsers[curUser.discordid][i].role)) {
                         // Team member get Platinum Perks
@@ -306,7 +313,10 @@ export async function FetchProfile({ apiPath, specialUsers, patrons, setUserLeve
             localStorage.removeItem("token");
             setCurUserBanner({ name: "Login", role: "", avatar: "https://charlws.com/me.gif" });
             return { ok: false, member: false };
-        }
+        } else {
+            // non 200/401 response (e.g. 500) - treat as not authenticated
+            return { ok: false, member: false };
+        };
     } else {
         setCurUID(null);
         setCurUser({});
